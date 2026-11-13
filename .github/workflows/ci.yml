@@ -1,0 +1,42 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: wagent_test
+          POSTGRES_PASSWORD: local-test-password
+          POSTGRES_DB: wagent_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wagent_test -d wagent_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
+      WAGENT_TEST_POSTGRES_URL: postgresql+asyncpg://wagent_test:local-test-password@localhost:5432/wagent_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install "${{ matrix.python-version }}"
+      - run: uv sync --all-extras --locked --python "${{ matrix.python-version }}"
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pyright
+      - run: uv run pytest -q
+      - run: uv run wagent --version
+      - run: uv build
