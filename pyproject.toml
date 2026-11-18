@@ -22,6 +22,7 @@ dependencies = [
   "pydantic-settings>=2.8",
   "python-dotenv>=1.0",
   "httpx>=0.28",
+  "filelock>=3.18",
   "typer>=0.15",
   "uvicorn>=0.34",
 ]
@@ -55,6 +56,7 @@ venv = ".venv"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--strict-config --strict-markers"

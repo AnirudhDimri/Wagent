@@ -1,6 +1,6 @@
 """Environment-backed gateway configuration."""
 
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -24,6 +24,60 @@ class Settings(BaseSettings):
     webhook_path: str = "/webhook"
     admin_api_key: SecretStr | None = None
     log_salt: SecretStr | None = None
+
+    lease_seconds: float = Field(default=120, gt=0)
+    runner_timeout_seconds: float = Field(default=60, gt=0)
+    send_timeout_seconds: float = Field(default=20, gt=0)
+    max_attempts: int = Field(default=3, ge=1)
+    retry_backoff_seconds: float = Field(default=1, gt=0)
+    worker_poll_seconds: float = Field(default=0.1, gt=0)
+    worker_concurrency: int = Field(default=8, ge=1)
+    wa_api_version: str = "v26.0"
+    out_of_window_policy: Literal["drop", "template"] = "drop"
+    fallback_template_name: str | None = None
+    fallback_template_lang: str = "en_US"
+    debounce_ms: int = Field(default=1500, ge=0)
+    max_debounce_ms: int = Field(default=5000, ge=0)
+    rate_limit_turns_per_min: int = Field(default=6, ge=1)
+    daily_outbound_cap_per_user: int = Field(default=50, ge=0)
+    pause_all: bool = False
+    opt_out_keywords: str = "STOP,UNSUBSCRIBE"
+    retention_days: int = Field(default=30, ge=0)
+    retention_interval_seconds: float = Field(default=3600, gt=0)
+    send_max_attempts: int = Field(default=3, ge=1)
+
+    @model_validator(mode="after")
+    def valid_debounce(self) -> Self:
+        if self.max_debounce_ms < self.debounce_ms:
+            raise ValueError("MAX_DEBOUNCE_MS must be at least DEBOUNCE_MS")
+        return self
+
+    @model_validator(mode="after")
+    def template_configuration(self) -> Self:
+        if self.out_of_window_policy == "template" and not (
+            self.wa_waba_id
+            and self.wa_waba_id.strip()
+            and self.fallback_template_name
+            and self.fallback_template_name.strip()
+            and self.fallback_template_lang.strip()
+        ):
+            raise ValueError("template policy requires WA_WABA_ID and FALLBACK_TEMPLATE_NAME/LANG")
+        return self
+
+    @field_validator("wa_api_version")
+    @classmethod
+    def api_version(cls, value: str) -> str:
+        import re
+
+        if not re.fullmatch(r"v[0-9]+\.[0-9]+", value):
+            raise ValueError("WA_API_VERSION must look like v26.0")
+        return value
+
+    @model_validator(mode="after")
+    def lease_covers_work(self) -> Self:
+        if self.lease_seconds <= max(self.runner_timeout_seconds, self.send_timeout_seconds):
+            raise ValueError("LEASE_SECONDS must exceed runner and send timeouts")
+        return self
 
     @field_validator("wa_app_secret", "wa_verify_token")
     @classmethod

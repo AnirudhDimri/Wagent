@@ -3,10 +3,11 @@
 A Python library for connecting LangGraph agents to WhatsApp Cloud API.
 MIT licensed; Python 3.11+.
 
-**Status:** M1 gateway and durable inbox. Signed webhooks and SQLite/PostgreSQL
-inbox storage are implemented. Agent execution, replies, and the simulator come
-in later milestones. See [the gateway guide](docs/gateway.md) for setup and
-[the build brief](docs/BRIEF.md) for the roadmap.
+**Status:** M4. Webhooks, persistent agent turns, safe text/template sends,
+status/usage tracking, batching, limits, pause, opt-out, retention, and erasure
+are implemented. Start with [the worker guide](docs/worker.md), then
+[sending and usage](docs/sending.md) and [controls and erasure](docs/controls.md).
+Human takeover and the local simulator remain later milestones.
 
 ## Development
 

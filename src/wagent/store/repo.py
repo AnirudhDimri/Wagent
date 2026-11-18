@@ -9,8 +9,18 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
-from wagent.gateway.events import InboundEvent
-from wagent.store.models import Conversation, InboundMessage, utc_now
+from wagent.gateway.events import InboundEvent, StatusEvent
+from wagent.store.models import (
+    AuditEvent,
+    Conversation,
+    InboundMessage,
+    MessageStatusEvent,
+    OutboundMessage,
+    Turn,
+    Usage,
+    utc_now,
+)
+from wagent.store.statuses import record_statuses
 
 
 def create_engine(url: str) -> AsyncEngine:
@@ -38,9 +48,18 @@ class InboxRepository:
             await session.execute(text("SELECT 1"))
             await session.execute(select(Conversation).limit(0))
             await session.execute(select(InboundMessage).limit(0))
+            await session.execute(select(Turn).limit(0))
+            await session.execute(select(OutboundMessage).limit(0))
+            await session.execute(select(Usage).limit(0))
+            await session.execute(select(MessageStatusEvent).limit(0))
+            await session.execute(select(AuditEvent).limit(0))
 
-    async def ingest(self, events: Sequence[InboundEvent]) -> None:
-        if not events:
+    async def ingest(
+        self,
+        events: Sequence[InboundEvent],
+        statuses: Sequence[StatusEvent] = (),
+    ) -> None:
+        if not events and not statuses:
             return
         insert = sqlite_insert if self.engine.dialect.name == "sqlite" else pg_insert
         async with self.sessions.begin() as session:
@@ -66,8 +85,12 @@ class InboxRepository:
                         ),
                         "updated_at": now,
                     },
-                ).returning(Conversation.id)
-                conversation_id = (await session.execute(conversation)).scalar_one()
+                ).returning(Conversation.id, Conversation.erasing)
+                conversation_id, erasing = (await session.execute(conversation)).one()
+                if erasing:
+                    from sqlalchemy.exc import SQLAlchemyError
+
+                    raise SQLAlchemyError("Conversation erasure in progress")
                 inbound = (
                     insert(InboundMessage)
                     .values(
@@ -83,3 +106,5 @@ class InboxRepository:
                     .on_conflict_do_nothing(index_elements=[InboundMessage.wa_message_id])
                 )
                 await session.execute(inbound)
+
+            await record_statuses(session, statuses, self.engine.dialect.name)

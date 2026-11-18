@@ -35,6 +35,15 @@ class FakeGraphAPI:
                 raise HTTPException(400, "Missing message content")
             if kind == "text" and not isinstance(body["text"].get("body"), str):
                 raise HTTPException(400, "Missing text body")
+            if kind == "text" and not 0 < len(body["text"]["body"]) <= 4096:
+                raise HTTPException(400, "Text must contain 1 to 4096 characters")
+            if kind == "template" and not (
+                isinstance(body["template"].get("name"), str)
+                and body["template"].get("name")
+                and isinstance(body["template"].get("language"), dict)
+                and body["template"]["language"].get("code")
+            ):
+                raise HTTPException(400, "Expected template name and language code")
             self.requests.append(
                 {"version": version, "phone_number_id": phone_number_id, "body": body}
             )

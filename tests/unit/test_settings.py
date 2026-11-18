@@ -20,6 +20,17 @@ def test_environment_loading(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize(
     "updates",
     [
+        {"debounce_ms": "10", "max_debounce_ms": "1"},
+        {"rate_limit_turns_per_min": "0"},
+        {"daily_outbound_cap_per_user": "-1"},
+        {"retention_days": "-1"},
+        {"retention_interval_seconds": "0"},
+        {"out_of_window_policy": "invented"},
+        {"out_of_window_policy": "template", "wa_waba_id": "", "fallback_template_name": ""},
+        {"send_max_attempts": "0"},
+        {"lease_seconds": "20"},
+        {"worker_concurrency": "0"},
+        {"wa_api_version": "invalid"},
         {"wa_app_secret": ""},
         {"wa_verify_token": " "},
         {"wa_phone_id": ""},

@@ -63,3 +63,26 @@ async def test_custom_webhook_path(settings: Settings) -> None:
         ) as client:
             assert (await client.post("/meta/events", content=b"{}")).status_code == 401
             assert (await client.get("/webhook")).status_code == 404
+
+
+async def test_m3_downgrade_upgrade_preserves_m2_messages(gateway: Wagent) -> None:
+    from sqlalchemy import select
+
+    from wagent.gateway.events import parse_events
+    from wagent.runners import EchoRunner
+    from wagent.store.models import OutboundMessage
+    from wagent.testing.payloads import message_payload
+    from wagent.worker.loop import Worker
+
+    await gateway.inbox.ingest(
+        parse_events(message_payload("keep me"), gateway.settings.wa_phone_id)
+    )
+    assert await Worker(gateway.inbox, gateway.settings, EchoRunner()).run_once()
+    async with gateway.inbox.sessions() as session:
+        original = (await session.scalars(select(OutboundMessage))).one()
+    await asyncio.to_thread(command.downgrade, Config("alembic.ini"), "0002_worker_outbox")
+    await asyncio.to_thread(command.upgrade, Config("alembic.ini"), "head")
+    async with gateway.inbox.sessions() as session:
+        restored = (await session.scalars(select(OutboundMessage))).one()
+        assert restored.id == original.id and restored.body == {"text": "keep me"}
+        assert restored.status == "queued" and restored.next_attempt_at is None

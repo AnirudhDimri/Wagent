@@ -1,7 +1,8 @@
 # wagent
 
-A Python library for connecting LangGraph agents to WhatsApp.
+Connect a LangGraph agent to WhatsApp with durable message handling.
 
-M1 implements signed webhook ingestion and the durable inbox. See the
-[gateway guide](gateway.md) for setup, endpoints, and current delivery guarantees.
-Agent execution and sending arrive in later milestones.
+M4 includes batching, limits, opt-out, and erasure. See the
+[worker guide](worker.md), [sending and usage](sending.md), and
+[controls and data protection](controls.md). Human takeover and simulator commands
+follow in later milestones.

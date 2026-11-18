@@ -5,9 +5,9 @@
 Install dependencies with `uv sync --all-extras`. Copy `.env.example` to `.env`
 and set `WA_PHONE_ID`, `WA_APP_SECRET`, and `WA_VERIFY_TOKEN` to your own values.
 Tokens and app secrets must stay outside source control. Only those three
-settings are required for receiving messages in M1. `WA_TOKEN`, `WA_APP_ID`,
-`WA_WABA_ID`, and `WA_CALLBACK_URL` are reserved for later integration steps;
-M1 makes no Graph API calls or automatic webhook registration requests.
+settings are required for an ingestion-only gateway. `WA_TOKEN` is additionally
+required when enabling a runner in M2. This ingestion-only application makes no
+Graph API calls or automatic webhook registration requests.
 
 Create `app.py` in your application directory:
 
@@ -28,9 +28,9 @@ Both Settings and Alembic read `DATABASE_URL` from the environment, falling back
 to `.env`. Alembic otherwise uses the default URL in `alembic.ini`. Supported
 URLs are `sqlite+aiosqlite:///./wagent.db` and `postgresql+asyncpg://...`.
 Use the `postgres` extra for PostgreSQL. Run migrations before serving, once
-per deployment; startup never modifies schema. Alembic can also emit SQL with
-`uv run alembic upgrade head --sql` or undo M1 with
-`uv run alembic downgrade base` (which deletes the inbox tables and their data).
+per deployment; application tables are never created by startup. Alembic can also emit SQL with
+`uv run alembic upgrade head --sql` or remove the application tables with
+`uv run alembic downgrade base` (which deletes application tables and their data).
 
 ## HTTP routes
 
@@ -42,19 +42,21 @@ per deployment; startup never modifies schema. Alembic can also emit SQL with
   Invalid JSON returns 400. Known messages are committed before returning 200;
   database failures return 503 so Meta can retry.
 - `GET /healthz`: process liveness, independent of the database.
-- `GET /readyz`: verifies database connectivity and both inbox tables; returns
+- `GET /readyz`: verifies database connectivity and all required application tables; returns
   503 if the schema has not been migrated or the database is unavailable.
 
 Set `WEBHOOK_PATH` to change the webhook route. This instance only accepts
 messages whose metadata matches `WA_PHONE_ID`. Unknown event types and malformed
 individual messages are ignored with constant DEBUG messages containing no
 payloads. Future message kinds with valid IDs/senders/timestamps are stored as
-`other`. Status events are acknowledged but not persisted until M3.
+`other`. M3 also persists status receipts and pricing; see [sending and usage](sending.md).
 
 ## Local signed request
 
 With the server running and test configuration values in `.env`, use the payload
-helper from another Python process. This does not contact Meta:
+helper from another Python process. With the ingestion-only app above this
+does not contact Meta. An app configured with a runner can send a real reply;
+use the [offline tests](worker.md) to test the whole pipeline without Meta:
 
 ```python
 import httpx
@@ -72,7 +74,7 @@ response.raise_for_status()
 ```
 
 `wagent.testing.fake_graph_api.FakeGraphAPI` supplies an offline ASGI app for
-later send tests and captures authenticated requests in `requests`. Its contract
+offline send tests and captures authenticated requests in `requests`. Its contract
 is intentionally a minimal stand-in, not a complete emulation of Meta's API.
 
 ## Delivery guarantees
@@ -83,17 +85,19 @@ an agent ran or replied. Database uniqueness handles retries and concurrent
 duplicate deliveries across restarts. Messages retain their WhatsApp timestamps
 and receipt timestamps; `last_inbound_at` can only advance.
 
-The planned worker (M2+) will process each conversation in timestamp order.
-Late arrivals cannot retroactively precede already completed turns. Agent turns
-will be at-least-once after crashes, using deterministic turn/message IDs to
-avoid duplicate history. The planned outbox will suppress resends of rows in
-sending/sent/delivered/read/unknown states; ambiguous sends will require status
-reconciliation or operator review. These later guarantees are not implemented
-in M1. No global exactly-once delivery guarantee is claimed.
+The M2 worker processes each conversation in timestamp order. Late arrivals
+cannot retroactively precede already completed turns. Agent turns are
+at-least-once after crashes; deterministic user-message IDs prevent duplicate
+user history. Agent tools may still run again. The outbox suppresses resends of
+sending/sent/delivered/read/unknown rows. M3 resolves ambiguous sends through matching status receipts; manual admin
+resolution arrives in a later milestone.
+No global exactly-once delivery guarantee is claimed.
 
-No worker, agent execution, outbound sender, or admin endpoints exist in M1.
+The ingestion-only mode described here does not start a worker. M2 now adds
+agent execution and outbound text: see [the worker guide](worker.md). Admin
+management remains M5 scope; M3 adds protected usage and M4 adds conversation erasure.
 Operators remain responsible for consent, data access, and Meta account setup.
-Retention and erasure workflows arrive in M4.
+M4 adds [retention and erasure workflows](controls.md).
 
 ## Validation
 

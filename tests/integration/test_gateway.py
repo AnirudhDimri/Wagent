@@ -261,7 +261,7 @@ async def test_persists_after_restart(client: httpx.AsyncClient, settings: Setti
 async def test_storage_failure_is_retryable(
     client: httpx.AsyncClient, gateway: Wagent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def fail(_: Any) -> None:
+    async def fail(_: Any, statuses: Any = ()) -> None:
         raise OperationalError("hidden", {}, Exception("hidden"))
 
     monkeypatch.setattr(gateway.inbox, "ingest", fail)

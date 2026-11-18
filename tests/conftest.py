@@ -31,6 +31,7 @@ def settings(database_url: str) -> Settings:
         wa_app_secret=SecretStr(APP_SECRET),
         wa_verify_token=SecretStr(VERIFY_TOKEN),
         database_url=database_url,
+        debounce_ms=0,
     )
 
 

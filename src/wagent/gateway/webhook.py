@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from wagent.gateway.events import parse_events
+from wagent.gateway.events import parse_events, parse_statuses
 from wagent.gateway.signature import verify_signature
 from wagent.settings import Settings
 from wagent.store.repo import InboxRepository
@@ -45,7 +45,7 @@ def webhook_router(settings: Settings, inbox: InboxRepository) -> APIRouter:
             raise HTTPException(400, "Invalid JSON") from None
         events = parse_events(payload, settings.wa_phone_id)
         try:
-            await inbox.ingest(events)
+            await inbox.ingest(events, parse_statuses(payload, settings.wa_phone_id))
         except SQLAlchemyError:
             # Do not log SQL parameters, payloads, or exception strings.
             raise HTTPException(503, "Inbox unavailable") from None

@@ -1,5 +1,7 @@
 """Normalize all inbound messages in a Cloud API envelope."""
 
+import hashlib
+import json
 import logging
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
@@ -88,4 +90,67 @@ def parse_events(payload: object, phone_number_id: str) -> list[InboundEvent]:
                     logger.debug("Ignored malformed inbound event")
                     continue
                 events.append(event)
+    return events
+
+
+class StatusEvent(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+    id: str
+    phone_number_id: str
+    wa_message_id: str = Field(min_length=1)
+    status: Literal["sent", "delivered", "read", "failed"]
+    wa_timestamp: datetime
+    tracker: str | None = None
+    pricing: dict[str, Any] | None = None
+    error_code: str | None = None
+
+
+def parse_statuses(payload: object, phone_number_id: str) -> list[StatusEvent]:
+    if not isinstance(payload, dict):
+        return []
+    envelope = cast(dict[str, Any], payload)
+    if envelope.get("object") != "whatsapp_business_account":
+        return []
+    events: list[StatusEvent] = []
+    for entry in _objects(envelope.get("entry")):
+        for change in _objects(entry.get("changes")):
+            value: Any = change.get("value")
+            if change.get("field") != "messages" or not isinstance(value, dict):
+                continue
+            value = cast(dict[str, Any], value)
+            metadata: Any = value.get("metadata")
+            if not isinstance(metadata, dict):
+                continue
+            if cast(dict[str, Any], metadata).get("phone_number_id") != phone_number_id:
+                continue
+            for raw in _objects(value.get("statuses")):
+                try:
+                    timestamp: Any = raw.get("timestamp")
+                    if not isinstance(timestamp, (str, int)) or isinstance(timestamp, bool):
+                        raise ValueError("invalid timestamp")
+                    pricing: Any = raw.get("pricing")
+                    tracker: Any = raw.get("biz_opaque_callback_data")
+                    errors = _objects(raw.get("errors"))
+                    code: Any = errors[0].get("code") if errors else None
+                    digest = hashlib.sha256(
+                        json.dumps(
+                            [phone_number_id, raw], sort_keys=True, separators=(",", ":")
+                        ).encode()
+                    ).hexdigest()
+                    events.append(
+                        StatusEvent.model_validate(
+                            {
+                                "id": digest,
+                                "phone_number_id": phone_number_id,
+                                "wa_message_id": raw.get("id"),
+                                "status": raw.get("status"),
+                                "wa_timestamp": datetime.fromtimestamp(int(timestamp), UTC),
+                                "tracker": tracker if isinstance(tracker, str) else None,
+                                "pricing": pricing if isinstance(pricing, dict) else None,
+                                "error_code": str(code) if isinstance(code, (int, str)) else None,
+                            }
+                        )
+                    )
+                except (ValueError, TypeError, OverflowError, OSError):
+                    logger.debug("Ignored malformed status event")
     return events
