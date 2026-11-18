@@ -46,9 +46,11 @@ async def test_postgres_ingestion(monkeypatch: pytest.MonkeyPatch) -> None:
             payload = message_payload("latest", message_id="postgres-latest", timestamp=now)
             body, headers = signed_payload(payload, "test-secret")
             responses = await asyncio.gather(
-                *(client.post("/webhook", content=body, headers=headers) for _ in range(3))
+                *(client.post("/webhook", content=body, headers=headers) for _ in range(10))
             )
-            assert all(response.status_code == 200 for response in responses)
+            assert all(response.status_code == 200 for response in responses), [
+                (response.status_code, response.text) for response in responses
+            ]
             older = message_payload(
                 "earlier", message_id="postgres-earlier", timestamp=now - timedelta(minutes=1)
             )

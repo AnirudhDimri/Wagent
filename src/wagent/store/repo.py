@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import case, event, select, text
+from sqlalchemy import case, event, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
@@ -75,18 +75,37 @@ class InboxRepository:
                     created_at=now,
                     updated_at=now,
                 )
-                conversation = conversation.on_conflict_do_update(
-                    index_elements=[Conversation.phone_number_id, Conversation.wa_id],
-                    set_={
-                        "last_inbound_at": case(
-                            (Conversation.last_inbound_at.is_(None), item.wa_timestamp),
-                            (Conversation.last_inbound_at < item.wa_timestamp, item.wa_timestamp),
-                            else_=Conversation.last_inbound_at,
-                        ),
-                        "updated_at": now,
-                    },
-                ).returning(Conversation.id, Conversation.erasing)
-                conversation_id, erasing = (await session.execute(conversation)).one()
+                # Both sender and thread_id are unique. Naming only one conflict
+                # target can expose a race on the other index in PostgreSQL.
+                created = (
+                    await session.execute(
+                        conversation.on_conflict_do_nothing().returning(
+                            Conversation.id, Conversation.erasing
+                        )
+                    )
+                ).one_or_none()
+                if created is None:
+                    existing = (
+                        update(Conversation)
+                        .where(
+                            Conversation.phone_number_id == item.phone_number_id,
+                            Conversation.wa_id == item.wa_id,
+                        )
+                        .values(
+                            last_inbound_at=case(
+                                (Conversation.last_inbound_at.is_(None), item.wa_timestamp),
+                                (
+                                    Conversation.last_inbound_at < item.wa_timestamp,
+                                    item.wa_timestamp,
+                                ),
+                                else_=Conversation.last_inbound_at,
+                            ),
+                            updated_at=now,
+                        )
+                        .returning(Conversation.id, Conversation.erasing)
+                    )
+                    created = (await session.execute(existing)).one()
+                conversation_id, erasing = created
                 if erasing:
                     from sqlalchemy.exc import SQLAlchemyError
 

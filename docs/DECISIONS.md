@@ -172,3 +172,12 @@ Retention clears only raw inbound JSON to SQL NULL. It runs at startup and on a
 configurable interval in ingestion-only and worker-enabled applications. Stable
 HMAC labels require explicit LOG_SALT; without it, no sender identifiers are
 logged by the worker. Application database connections already hide SQL params.
+
+## PostgreSQL concurrency correction
+
+An ON CONFLICT update targeting only (phone_number_id, wa_id) can still fail on
+its separate thread_id uniqueness constraint during concurrent first deliveries.
+Insert conversations with untargeted ON CONFLICT DO NOTHING, then atomically
+update the exact sender row if it already exists. This handles either unique
+index without dropping constraints or changing the transaction/dedupe guarantees.
+The live PostgreSQL regression now submits ten concurrent duplicate deliveries.
